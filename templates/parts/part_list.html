@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <h1 class="h3 mb-0 me-auto">Детали <span class="text-body-secondary fs-5">{{ paginator.count }}</span></h1>
+        <a class="btn btn-primary" href="{% url "parts:create" %}">Добавить деталь</a>
+    </div>
+    <form method="get" class="card card-body shadow-sm mb-3">
+        <div class="row g-2">
+            <div class="col-12 col-lg-4">{{ search_form.q }}</div>
+            <div class="col-6 col-md-4 col-lg-2">{{ search_form.category }}</div>
+            <div class="col-6 col-md-4 col-lg-2">{{ search_form.location }}</div>
+            <div class="col-6 col-md-4 col-lg-2">{{ search_form.mounting }}</div>
+            <div class="col-6 col-md-4 col-lg-2">{{ search_form.in_stock }}</div>
+            <div class="col-12 col-md-4 col-lg-3">{{ search_form.sort }}</div>
+            <div class="col-12 col-md-4 col-lg-auto d-flex gap-2">
+                <button type="submit" class="btn btn-outline-primary">Найти</button>
+                {% if filtered %}<a class="btn btn-outline-secondary"
+                                    href="{% url "parts:list" %}">Сбросить</a>{% endif %}
+            </div>
+        </div>
+    </form>
+    {% if object_list %}
+        <div class="card shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th class="d-none d-sm-table-cell"></th>
+                            <th>Название</th>
+                            <th class="d-none d-md-table-cell">Корпус</th>
+                            <th class="d-none d-lg-table-cell">Категория</th>
+                            <th class="d-none d-md-table-cell">Место</th>
+                            <th class="text-end">
+                                <span class="d-none d-sm-inline">Количество</span><span class="d-sm-none">Кол-во</span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for part in object_list %}
+                            <tr id="part-{{ part.pk }}">
+                                <td class="d-none d-sm-table-cell">
+                                    {% if part.photo %}
+                                        <img src="{{ part.photo.url }}"
+                                             alt=""
+                                             width="48"
+                                             height="48"
+                                             class="rounded object-fit-cover border"
+                                             loading="lazy">
+                                    {% else %}
+                                        <svg width="48"
+                                             height="48"
+                                             class="rounded border bg-body-secondary"
+                                             aria-hidden="true">
+                                        </svg>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a class="fw-semibold text-decoration-none text-break"
+                                       href="{{ part.get_absolute_url }}">{{ part.name }}</a>
+                                    {% if part.value %}<div class="small text-body-secondary">{{ part.value }}</div>{% endif %}
+                                </td>
+                                <td class="d-none d-md-table-cell">{{ part.package|default:"—" }}</td>
+                                <td class="d-none d-lg-table-cell small">{{ part.category }}</td>
+                                <td class="d-none d-md-table-cell small">
+                                    {% if part.location %}{{ part.location }}{% else %}<span class="badge text-bg-warning">не указано</span>{% endif %}
+                                </td>
+                                <td class="text-end text-nowrap">
+                                    <form method="post"
+                                          action="{% url "parts:adjust" part.pk %}"
+                                          class="d-inline-flex align-items-center gap-1">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                        <button type="submit"
+                                                name="delta"
+                                                value="-1"
+                                                class="btn btn-sm btn-outline-secondary"
+                                                aria-label="Минус один"{% if not part.quantity %} disabled{% endif %}>−</button>
+                                        <span class="px-1{% if not part.quantity %} text-danger{% endif %}">{{ part.quantity }} {{ part.get_unit_display }}</span>
+                                        <button type="submit"
+                                                name="delta"
+                                                value="1"
+                                                class="btn btn-sm btn-outline-secondary"
+                                                aria-label="Плюс один">+</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% include "includes/pagination.html" %}
+    {% else %}
+        <div class="alert alert-secondary">Ничего не найдено.</div>
+    {% endif %}
+{% endblock %}

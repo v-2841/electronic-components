@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Места — Радиодетали{% endblock %}
+{% block content %}
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <h1 class="h3 mb-0 me-auto">Места хранения</h1>
+        <a class="btn btn-primary" href="{% url "parts:location_create" %}">Добавить место</a>
+    </div>
+    {% if unsorted %}
+        <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2">
+            <span class="me-auto">Место не указано у {{ unsorted }} дет.</span>
+            <a class="btn btn-sm btn-warning"
+               href="{% url "parts:list" %}?location=none">Разобрать</a>
+        </div>
+    {% endif %}
+    {% if object_list %}
+        <div class="card shadow-sm">
+            <ul class="list-group list-group-flush">
+                {% for location in object_list %}
+                    <li class="list-group-item d-flex flex-wrap align-items-center gap-2">
+                        <div class="me-auto">
+                            <a class="fw-semibold text-decoration-none"
+                               href="{% url "parts:list" %}?location={{ location.pk }}">{{ location.name }}</a>
+                            {% if location.description %}<div class="small text-body-secondary">{{ location.description }}</div>{% endif %}
+                        </div>
+                        <span class="badge text-bg-secondary"
+                              title="Деталей / из них в наличии">{{ location.count }} / {{ location.in_stock }}</span>
+                        <a class="btn btn-sm btn-outline-primary"
+                           href="{% url "parts:create" %}?location={{ location.pk }}">+ деталь</a>
+                        <a class="btn btn-sm btn-outline-secondary"
+                           href="{% url "parts:location_update" location.pk %}">Изменить</a>
+                        <a class="btn btn-sm btn-outline-danger"
+                           href="{% url "parts:location_delete" location.pk %}">Удалить</a>
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% else %}
+        <div class="alert alert-secondary">Мест пока нет. Заведите коробки и ячейки, например «Органайзер 1 / A3».</div>
+    {% endif %}
+{% endblock %}

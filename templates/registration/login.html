@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Вход — Радиодетали{% endblock %}
+{% block content %}
+    <div class="row justify-content-center">
+        <div class="col-sm-8 col-md-6 col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-body p-4">
+                    <h1 class="h4 mb-3">Вход</h1>
+                    {% if form.errors %}
+                        <div class="alert alert-danger">Неверное имя пользователя или пароль.</div>
+                    {% endif %}
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label class="form-label" for="id_username">Имя пользователя</label>
+                            <input class="form-control"
+                                   type="text"
+                                   name="username"
+                                   id="id_username"
+                                   autocomplete="username"
+                                   autofocus
+                                   required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="id_password">Пароль</label>
+                            <input class="form-control"
+                                   type="password"
+                                   name="password"
+                                   id="id_password"
+                                   autocomplete="current-password"
+                                   required>
+                        </div>
+                        <input type="hidden" name="next" value="{{ next }}">
+                        <button type="submit" class="btn btn-primary w-100">Войти</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

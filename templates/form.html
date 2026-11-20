@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{% if object.pk %}{{ object }}{% else %}{{ title_new }}{% endif %} — Радиодетали{% endblock %}
+{% block content %}
+    <h1 class="h3 mb-4">{% if object.pk %}Изменить «{{ object }}»{% else %}{{ title_new }}{% endif %}</h1>
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                {% include "includes/form_fields.html" %}
+                <div class="mt-4 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Отмена</a>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endblock %}

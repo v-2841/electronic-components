@@ -1,0 +1,27 @@
+services:
+  app:
+    build: .
+    image: electronic-components
+    pull_policy: never
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - ./db.sqlite3:/app/db.sqlite3
+      - ./media/:/app/media/
+      - ./staticfiles/:/app/staticfiles/
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "127.0.0.1:8012:80"
+    restart: unless-stopped
+    depends_on:
+      - app
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./staticfiles/:/srv/staticfiles/:ro
+      - ./media/:/srv/media/:ro
+      - caddy_data:/data
+
+volumes:
+  caddy_data:

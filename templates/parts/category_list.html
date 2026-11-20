@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Категории — Радиодетали{% endblock %}
+{% block content %}
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <h1 class="h3 mb-0 me-auto">Категории</h1>
+        <a class="btn btn-primary" href="{% url "parts:category_create" %}">Добавить категорию</a>
+    </div>
+    {% for root in object_list %}
+        <div class="card shadow-sm mb-3">
+            <div class="card-header d-flex flex-wrap align-items-center gap-2">
+                <a class="fw-semibold me-auto text-decoration-none"
+                   href="{% url "parts:list" %}?category={{ root.pk }}">{{ root.name }}</a>
+                <span class="badge text-bg-secondary">{{ root.total }}</span>
+                <a class="btn btn-sm btn-outline-primary"
+                   href="{% url "parts:category_create" %}?parent={{ root.pk }}">+ подкатегория</a>
+                <a class="btn btn-sm btn-outline-secondary"
+                   href="{% url "parts:category_update" root.pk %}">Изменить</a>
+                <a class="btn btn-sm btn-outline-danger"
+                   href="{% url "parts:category_delete" root.pk %}">Удалить</a>
+            </div>
+            {% if root.children.all %}
+                <ul class="list-group list-group-flush">
+                    {% for child in root.children.all %}
+                        <li class="list-group-item d-flex flex-wrap align-items-center gap-2">
+                            <a class="me-auto text-decoration-none"
+                               href="{% url "parts:list" %}?category={{ child.pk }}">{{ child.name }}</a>
+                            <span class="badge text-bg-light border">{{ child.count }}</span>
+                            <a class="btn btn-sm btn-outline-secondary"
+                               href="{% url "parts:category_update" child.pk %}">Изменить</a>
+                            <a class="btn btn-sm btn-outline-danger"
+                               href="{% url "parts:category_delete" child.pk %}">Удалить</a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+    {% empty %}
+        <div class="alert alert-secondary">Категорий пока нет.</div>
+    {% endfor %}
+{% endblock %}

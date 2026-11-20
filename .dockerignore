@@ -1,0 +1,22 @@
+# Git, editors
+.git
+.gitignore
+.vscode
+.idea
+
+# Docker
+docker-compose.yml
+Dockerfile
+.dockerignore
+Caddyfile
+
+# Python
+.venv
+**/__pycache__
+**/*.py[cod]
+
+# Data and secrets: mounted at run time, never baked into the image
+.env
+db.sqlite3*
+media/
+staticfiles/

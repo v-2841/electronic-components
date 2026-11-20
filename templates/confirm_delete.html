@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Удалить «{{ object }}» — Радиодетали{% endblock %}
+{% block content %}
+    <div class="card shadow-sm border-danger">
+        <div class="card-body">
+            <h1 class="h4">Удалить «{{ object }}»?</h1>
+            {% if warning %}<p class="text-body-secondary">{{ warning }}</p>{% endif %}
+            <form method="post" class="d-flex gap-2 mt-3">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-danger">Удалить</button>
+                <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Отмена</a>
+            </form>
+        </div>
+    </div>
+{% endblock %}

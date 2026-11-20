@@ -1,0 +1,25 @@
+{
+	# the TLS Caddy on the host talks to us from a private address: keep
+	# its X-Forwarded-Proto (https), so Django builds https:// links
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+:80 {
+	encode zstd gzip
+
+	handle_path /static/* {
+		root * /srv/staticfiles
+		file_server
+	}
+
+	handle_path /media/* {
+		root * /srv/media
+		file_server
+	}
+
+	handle {
+		reverse_proxy http://app:8000
+	}
+}
