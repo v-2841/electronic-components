@@ -1,14 +1,18 @@
 import shutil
 import tempfile
+from unittest import mock
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import override_settings
 from django.urls import reverse
+from rest_framework import serializers
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from parts.models import Category, Location, Part
+from api.serializers import CategorySerializer
+from api.views import PartViewSet
+from parts.models import MAX_QUANTITY, Category, Location, Part
 from parts.tests import image_file
 
 
@@ -114,18 +118,85 @@ class ApiTest(APITestCase):
 
     def test_photo_upload_and_clear(self):
         url = f'/api/v1/parts/{self.diode.pk}/'
-        response = self.client.patch(url, {'photo': image_file()},
-                                     format='multipart')
+        storage = Part._meta.get_field('photo').storage
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(url, {'photo': image_file()},
+                                         format='multipart')
         self.assertEqual(response.status_code, 200, response.data)
         self.assertTrue(response.data['photo'].startswith(
             'http://testserver/media/parts/'))
         self.diode.refresh_from_db()
         self.assertTrue(self.diode.photo.name.endswith('.jpg'))
-        response = self.client.patch(url, {'photo': None}, format='json')
+        name = self.diode.photo.name
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(url, {'photo': None},
+                                         format='json')
         self.assertEqual(response.status_code, 200, response.data)
         self.assertIsNone(response.data['photo'])
         self.diode.refresh_from_db()
         self.assertFalse(self.diode.photo)
+        self.assertFalse(storage.exists(name))
+
+    def test_patch_keeps_concurrent_quantity(self):
+        stale = Part.objects.get(pk=self.r1k.pk)        # quantity 5
+        self.r1k.adjust_quantity(3)                     # concurrent: 8
+        with mock.patch.object(PartViewSet, 'get_object',
+                               return_value=stale):
+            response = self.client.patch(f'/api/v1/parts/{self.r1k.pk}/',
+                                         {'notes': 'проверено'},
+                                         format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.r1k.refresh_from_db()
+        self.assertEqual((self.r1k.quantity, self.r1k.notes),
+                         (8, 'проверено'))
+
+    def test_adjust_limits(self):
+        url = f'/api/v1/parts/{self.r1k.pk}/adjust/'
+        response = self.client.post(url, {'delta': 1_000_001},
+                                    format='json')
+        self.assertEqual(response.status_code, 400)
+        Part.objects.filter(pk=self.r1k.pk).update(quantity=MAX_QUANTITY)
+        response = self.client.post(url, {'delta': 1_000_000},
+                                    format='json')
+        self.assertEqual(response.data['quantity'], MAX_QUANTITY)
+
+    def test_write_responses_carry_parts_count(self):
+        response = self.client.post('/api/v1/categories/', {
+            'name': 'SMD', 'parent': self.res.pk}, format='json')
+        self.assertEqual(response.data['parts_count'], 0)
+        response = self.client.patch(f'/api/v1/categories/{self.res.pk}/',
+                                     {'name': 'Резисторы'}, format='json')
+        self.assertEqual(response.data['parts_count'], 1)
+        response = self.client.post('/api/v1/locations/', {
+            'name': 'Коробка 2'}, format='json')
+        self.assertEqual(response.data['parts_count'], 0)
+        response = self.client.patch(f'/api/v1/locations/{self.box.pk}/',
+                                     {'description': 'нижняя полка'},
+                                     format='json')
+        self.assertEqual(response.data['parts_count'], 1)
+
+    def test_category_race_gives_400(self):
+        loose = Category.objects.create(name='Модули')
+        move = CategorySerializer(loose, data={'parent': self.diodes.pk},
+                                  partial=True)
+        child = CategorySerializer(data={'name': 'Датчики',
+                                         'parent': loose.pk})
+        self.assertTrue(move.is_valid() and child.is_valid())
+        move.save()
+        with self.assertRaises(serializers.ValidationError):
+            child.save()
+
+    def test_schema_matches_behaviour(self):
+        schema = self.client.get('/api/v1/schema/', {'format': 'json'}).json()
+        photo = schema['components']['schemas']['PartRequest'][
+            'properties']['photo']
+        self.assertEqual(photo.get('format'), 'binary')
+        token = schema['paths']['/api/v1/token/']['post']
+        self.assertIn(token.get('security'), (None, [], [{}]))
+        self.client.force_authenticate(None)
+        response = self.client.post('/api/v1/token/',
+                                    {'username': 'v', 'password': 'pw'})
+        self.assertEqual(response.status_code, 200)
 
     def test_adjust(self):
         url = f'/api/v1/parts/{self.r1k.pk}/adjust/'

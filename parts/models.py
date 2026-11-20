@@ -2,14 +2,17 @@ from io import BytesIO
 
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
-from django.db import models
-from django.db.models.functions import Greatest
+from django.db import models, transaction
+from django.db.models.functions import Greatest, Least
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image, ImageOps
 
 
 PHOTO_MAX_SIDE = 1600
+MAX_QUANTITY = 2147483647   # PositiveIntegerField range
 SEARCH_FIELDS = ['name', 'value', 'package', 'manufacturer', 'part_number',
                  'description', 'notes']
 
@@ -55,7 +58,11 @@ class Category(models.Model):
         if self.pk and self.parent_id == self.pk:
             raise ValidationError(
                 {'parent': 'Категория не может быть родителем самой себе.'})
-        if self.parent.parent_id is not None:
+        # from the base, not self.parent: that object may be read before
+        # another request moved the parent (see save)
+        grandparent = (Category.objects.filter(pk=self.parent_id)
+                       .values_list('parent_id', flat=True).first())
+        if grandparent is not None:
             raise ValidationError(
                 {'parent': 'Родителем может быть только категория '
                            'верхнего уровня.'})
@@ -63,6 +70,13 @@ class Category(models.Model):
             raise ValidationError(
                 {'parent': 'У категории есть подкатегории, поэтому она '
                            'не может стать подкатегорией.'})
+
+    # check and write in one transaction (SQLite IMMEDIATE mode, see
+    # settings): two requests validated at once cannot build a third level
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            self.clean()
+            super().save(*args, **kwargs)
 
 
 class Location(models.Model):
@@ -212,17 +226,43 @@ class Part(models.Model):
         return reverse('parts:detail', args=[self.pk])
 
     def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        old_photo = None
+        if self.pk and (update_fields is None or 'photo' in update_fields):
+            old_photo = (Part.objects.filter(pk=self.pk)
+                         .values_list('photo', flat=True).first())
         if self.photo and not self.photo._committed:
             self.photo = shrink_photo(self.photo)
         super().save(*args, **kwargs)
+        if old_photo and old_photo != self.photo.name:
+            forget_photo(old_photo)
 
+    # quantity changes are single UPDATEs, never read-modify-write: a
+    # concurrent ± is not lost; update() skips auto_now, so updated_at too
     def adjust_quantity(self, delta):
-        # one UPDATE: two quick clicks never lose a change; floor at zero;
-        # update() skips auto_now, so updated_at is set here
+        new = Greatest(models.F('quantity') + delta, 0)
         Part.objects.filter(pk=self.pk).update(
-            quantity=Greatest(models.F('quantity') + delta, 0),
-            updated_at=timezone.now())
+            quantity=Least(new, MAX_QUANTITY), updated_at=timezone.now())
         self.refresh_from_db(fields=['quantity', 'updated_at'])
+
+    def set_quantity(self, value):
+        Part.objects.filter(pk=self.pk).update(
+            quantity=value, updated_at=timezone.now())
+        self.refresh_from_db(fields=['quantity', 'updated_at'])
+
+
+# the old file goes after the commit, and only if no part still uses it
+def forget_photo(name):
+    def delete_if_unused():
+        if not Part.objects.filter(photo=name).exists():
+            Part._meta.get_field('photo').storage.delete(name)
+    transaction.on_commit(delete_if_unused)
+
+
+@receiver(post_delete, sender=Part)
+def delete_photo_file(sender, instance, **kwargs):
+    if instance.photo:
+        forget_photo(instance.photo.name)
 
 
 # phone photos are megabytes: keep at most PHOTO_MAX_SIDE px, as JPEG

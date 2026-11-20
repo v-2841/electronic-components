@@ -54,6 +54,19 @@ class Conflict(APIException):
     default_code = 'protected'
 
 
+# the response of POST/PUT/PATCH carries parts_count like GET does
+class AnnotatedResponseMixin:
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        serializer.instance = self.get_queryset().get(
+            pk=serializer.instance.pk)
+
+    def perform_update(self, serializer):
+        super().perform_update(serializer)
+        serializer.instance = self.get_queryset().get(
+            pk=serializer.instance.pk)
+
+
 def crud_schema(one, many):
     return extend_schema_view(
         list=extend_schema(summary=f'Список: {many}'),
@@ -67,7 +80,7 @@ def crud_schema(one, many):
 
 
 @crud_schema('категория', 'категории')
-class CategoryViewSet(viewsets.ModelViewSet):
+class CategoryViewSet(AnnotatedResponseMixin, viewsets.ModelViewSet):
     """Категории — дерево в два уровня: верхняя («Диоды») и подкатегории
     («Шоттки»). Список отдаётся целиком, без страниц."""
 
@@ -89,7 +102,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
 
 @crud_schema('место хранения', 'места хранения')
-class LocationViewSet(viewsets.ModelViewSet):
+class LocationViewSet(AnnotatedResponseMixin, viewsets.ModelViewSet):
     """Места хранения — плоский список коробок и ячеек. При удалении места
     у его деталей место становится null («не указано»)."""
 
@@ -152,6 +165,7 @@ class PartViewSet(viewsets.ModelViewSet):
 
 
 @extend_schema_view(post=extend_schema(
+    auth=[],
     summary='Получить токен по логину и паролю',
     description='Тело: `username`, `password` (форма или JSON). Ответ: '
                 '`{"token": "..."}`; дальше заголовок '

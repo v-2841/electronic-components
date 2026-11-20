@@ -42,6 +42,14 @@ class CategorySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(error.message_dict)
         return attrs
 
+    # Category.save re-checks the tree under the write lock: another
+    # request may have changed it after validate()
+    def save(self, **kwargs):
+        try:
+            return super().save(**kwargs)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.message_dict)
+
 
 class LocationSerializer(serializers.ModelSerializer):
     parts_count = serializers.IntegerField(
@@ -157,9 +165,19 @@ class PartSerializer(serializers.ModelSerializer):
             },
         }
 
+    # write only the fields sent: a PATCH of `notes` must not write back
+    # a quantity read before a concurrent `adjust`
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.save(update_fields=[*validated_data, 'updated_at'])
+        return instance
+
 
 class AdjustSerializer(serializers.Serializer):
     delta = serializers.IntegerField(
-        help_text='Сколько добавить (отрицательное — списать). Ниже нуля '
-                  'количество не опускается.',
+        min_value=-1_000_000,
+        max_value=1_000_000,
+        help_text='Сколько добавить (отрицательное — списать), по модулю не '
+                  'больше 1 000 000. Ниже нуля количество не опускается.',
     )

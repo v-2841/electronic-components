@@ -1,23 +1,39 @@
 import shutil
 import tempfile
 from io import BytesIO
+from unittest import mock
 
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
-from parts.models import Category, Location, Part
+from parts.forms import CategoryForm
+from parts.models import MAX_QUANTITY, Category, Location, Part
 
 
 MEDIA = tempfile.mkdtemp()
 
 
-def image_file(name='photo.png', size=(2000, 1000)):
+def png_bytes(size=(2000, 1000)):
     buffer = BytesIO()
     Image.new('RGB', size, 'red').save(buffer, 'PNG')
-    return SimpleUploadedFile(name, buffer.getvalue(), 'image/png')
+    return buffer.getvalue()
+
+
+def image_file(name='photo.png', size=(2000, 1000)):
+    return SimpleUploadedFile(name, png_bytes(size), 'image/png')
+
+
+def fake_download(data=b'', error=None):
+    """Patch the HTTP fetch of parts.photos with a fixed answer."""
+    response = mock.MagicMock()
+    response.__enter__.return_value.read.return_value = data
+    return mock.patch('parts.photos.urlopen', return_value=response,
+                      side_effect=error)
 
 
 @override_settings(MEDIA_ROOT=MEDIA)
@@ -134,7 +150,128 @@ class PagesTest(TestCase):
             {'name': 'BC557C', 'category': self.diodes.pk,
              'quantity': '7', 'unit': 'pcs', 'location': self.box.pk})
         part.refresh_from_db()
-        self.assertEqual((part.quantity, part.location), (7, self.box))
+        # the edit form has no quantity: ± in the card sets it
+        self.assertEqual((part.quantity, part.location), (2, self.box))
+        self.assertTrue(part.photo.name.endswith('.jpg'))
+
+    def test_edit_form_keeps_concurrent_quantity(self):
+        url = reverse('parts:update', args=[self.r1k.pk])
+        form = self.client.get(url).context['form']
+        self.assertNotIn('quantity', form.fields)
+        self.r1k.adjust_quantity(1)   # e.g. via the API while editing
+        self.client.post(url, {
+            'name': self.r1k.name, 'category': self.tht.pk,
+            'unit': 'pcs', 'notes': 'новая заметка'})
+        self.r1k.refresh_from_db()
+        self.assertEqual((self.r1k.quantity, self.r1k.notes),
+                         (6, 'новая заметка'))
+
+    def test_set_quantity_is_exact_despite_stale_read(self):
+        stale = Part.objects.get(pk=self.r1k.pk)        # quantity 5
+        Part.objects.filter(pk=self.r1k.pk).update(quantity=6)
+        with mock.patch('parts.views.get_object_or_404', return_value=stale):
+            self.client.post(reverse('parts:adjust', args=[self.r1k.pk]),
+                             {'quantity': '42'})
+        self.r1k.refresh_from_db()
+        self.assertEqual(self.r1k.quantity, 42)
+
+    def test_quantity_limits(self):
+        url = reverse('parts:adjust', args=[self.r1k.pk])
+        for data in ({'delta': '10000000'},
+                     {'quantity': str(MAX_QUANTITY + 1)}):
+            response = self.client.post(url, data, follow=True)
+            self.assertContains(response, 'целое число от 0')
+        self.r1k.refresh_from_db()
+        self.assertEqual(self.r1k.quantity, 5)
+        Part.objects.filter(pk=self.r1k.pk).update(quantity=MAX_QUANTITY)
+        self.client.post(url, {'delta': '1'})
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT quantity, typeof(quantity) FROM '
+                           'parts_part WHERE id = %s', [self.r1k.pk])
+            self.assertEqual(cursor.fetchone(), (MAX_QUANTITY, 'integer'))
+
+    def test_page_out_of_range_shows_last_page(self):
+        response = self.client.get(reverse('parts:list'), {'page': 99})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['page_obj'].number, 1)
+
+    def test_replaced_and_deleted_photos_leave_no_files(self):
+        storage = Part._meta.get_field('photo').storage
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse('parts:create'), {
+                'name': 'BC557C', 'category': self.diodes.pk,
+                'quantity': '1', 'unit': 'pcs', 'photo': image_file()})
+        part = Part.objects.get(name='BC557C')
+        first = part.photo.name
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse('parts:update', args=[part.pk]), {
+                'name': 'BC557C', 'category': self.diodes.pk, 'unit': 'pcs',
+                'photo': image_file('second.png')})
+        part.refresh_from_db()
+        self.assertNotEqual(part.photo.name, first)
+        self.assertFalse(storage.exists(first))
+        second = part.photo.name
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse('parts:delete', args=[part.pk]))
+        self.assertFalse(storage.exists(second))
+
+    def test_shared_photo_file_is_kept(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            self.r1k.photo = image_file()
+            self.r1k.save()
+        name = self.r1k.photo.name
+        Part.objects.filter(pk=self.diode.pk).update(photo=name)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.r1k.delete()
+        self.assertTrue(Part._meta.get_field('photo').storage.exists(name))
+
+    def test_photo_from_url_in_card(self):
+        url = reverse('parts:photo_url', args=[self.r1k.pk])
+        with fake_download(png_bytes()):
+            response = self.client.post(
+                url, {'url': 'https://shop.example/img/r1k.png'},
+                follow=True)
+        self.assertContains(response, 'Фото загружено')
+        self.r1k.refresh_from_db()
+        self.assertTrue(self.r1k.photo.name.startswith('parts/r1k'))
+        self.assertTrue(self.r1k.photo.name.endswith('.jpg'))
+        with fake_download(b'<html>not an image</html>'):
+            response = self.client.post(
+                url, {'url': 'https://shop.example/page'}, follow=True)
+        self.assertContains(response, 'не картинка')
+        response = self.client.post(url, {'url': 'ftp://x/y.png'},
+                                    follow=True)
+        self.assertContains(response, 'http://')
+        with fake_download(error=OSError('timed out')):
+            response = self.client.post(
+                url, {'url': 'https://shop.example/slow.png'}, follow=True)
+        self.assertContains(response, 'Не удалось скачать')
+
+    def test_photo_url_in_form(self):
+        data = {'name': 'BC557C', 'category': self.diodes.pk,
+                'quantity': '1', 'unit': 'pcs',
+                'photo_url': 'https://shop.example/bc557.png'}
+        with fake_download(png_bytes()):
+            response = self.client.post(reverse('parts:create'), data)
+        part = Part.objects.get(name='BC557C')
+        self.assertRedirects(response, part.get_absolute_url())
+        self.assertTrue(part.photo.name.startswith('parts/bc557'))
+        data.update(name='BC547', photo=image_file())
+        with fake_download(png_bytes()):
+            response = self.client.post(reverse('parts:create'), data)
+        self.assertContains(response, 'не оба сразу')
+        self.assertFalse(Part.objects.filter(name='BC547').exists())
+
+    def test_category_check_and_write_are_one_step(self):
+        loose = Category.objects.create(name='Модули')
+        move = CategoryForm({'name': 'Модули', 'parent': self.diodes.pk},
+                            instance=loose)
+        child = CategoryForm({'name': 'Датчики', 'parent': loose.pk})
+        self.assertTrue(move.is_valid() and child.is_valid())
+        move.save()
+        with self.assertRaises(ValidationError):
+            child.save()
+        self.assertFalse(Category.objects.filter(name='Датчики').exists())
 
     def test_forms_render(self):
         for url in (reverse('parts:create'),

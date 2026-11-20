@@ -64,6 +64,11 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': os.getenv('DB_PATH', BASE_DIR / 'db.sqlite3'),
+        # a transaction takes the write lock at BEGIN: a check and the
+        # write after it (Category.save) cannot interleave with another one
+        'OPTIONS': {
+            'transaction_mode': 'IMMEDIATE',
+        },
     }
 }
 
@@ -104,6 +109,10 @@ LOGOUT_REDIRECT_URL = 'login'
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
+# production is https only; over plain http (local runs) login needs DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
@@ -129,4 +138,6 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'SERVE_PERMISSIONS': ['rest_framework.permissions.IsAuthenticated'],
+    # separate request schemas: an upload field is a binary file there
+    'COMPONENT_SPLIT_REQUEST': True,
 }

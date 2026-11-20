@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
+from django.core.exceptions import ValidationError
 from django.db.models import Count, Prefetch, ProtectedError, Q
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
@@ -12,8 +13,11 @@ from django.views.generic import (CreateView, DeleteView, DetailView,
 
 from parts.filters import PartFilter
 from parts.forms import CategoryForm, LocationForm, PartForm, PartSearchForm
-from parts.models import Category, Location, Part
+from parts.models import MAX_QUANTITY, Category, Location, Part
+from parts.photos import download_photo
 
+
+MAX_DELTA = 1_000_000
 
 # keys match parts.forms.SORT_CHOICES
 SORTS = {
@@ -37,6 +41,13 @@ class PartListView(LoginRequiredMixin, ListView):
         if self.sort not in SORTS:
             self.sort = 'name'
         return self.filterset.qs.order_by(*SORTS[self.sort])
+
+    # a page that is gone (the last «−» emptied it) shows the last one
+    # instead of 404
+    def paginate_queryset(self, queryset, page_size):
+        paginator = self.get_paginator(queryset, page_size)
+        page = paginator.get_page(self.request.GET.get('page'))
+        return paginator, page, page.object_list, page.has_other_pages()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -135,18 +146,33 @@ def adjust_quantity(request, pk):
     part = get_object_or_404(Part, pk=pk)
     value = request.POST.get('quantity', '').strip()
     delta = request.POST.get('delta', '').strip()
-    if value.isdigit():
-        part.adjust_quantity(int(value) - part.quantity)
-    elif delta.lstrip('-').isdigit():
+    if value.isdigit() and int(value) <= MAX_QUANTITY:
+        part.set_quantity(int(value))
+    elif delta.lstrip('-').isdigit() and abs(int(delta)) <= MAX_DELTA:
         part.adjust_quantity(int(delta))
     else:
-        messages.error(request, 'Количество — целое число не меньше нуля.')
+        messages.error(request, 'Количество — целое число от 0 до '
+                                f'{MAX_QUANTITY}.')
     target = request.POST.get('next', '')
     if not url_has_allowed_host_and_scheme(
             target, allowed_hosts={request.get_host()},
             require_https=request.is_secure()):
         target = reverse('parts:detail', args=[part.pk])
     return redirect(f'{target}#part-{part.pk}')
+
+
+@login_required
+@require_POST
+def photo_from_url(request, pk):
+    part = get_object_or_404(Part, pk=pk)
+    try:
+        part.photo = download_photo(request.POST.get('url', '').strip())
+    except ValidationError as error:
+        messages.error(request, error.messages[0])
+    else:
+        part.save(update_fields=['photo', 'updated_at'])
+        messages.success(request, 'Фото загружено.')
+    return redirect(part)
 
 
 class CategoryListView(LoginRequiredMixin, ListView):
@@ -168,6 +194,15 @@ class CategoryFormMixin(FormPageMixin):
     form_class = CategoryForm
     success_url = reverse_lazy('parts:categories')
     title_new = 'Новая категория'
+
+    # Category.save re-checks the tree under the write lock: another
+    # request may have changed it after this form was validated
+    def form_valid(self, form):
+        try:
+            return super().form_valid(form)
+        except ValidationError as error:
+            form.add_error(None, error)
+            return self.form_invalid(form)
 
 
 class CategoryCreateView(CategoryFormMixin, CreateView):

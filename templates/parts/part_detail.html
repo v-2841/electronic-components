@@ -30,6 +30,18 @@
                     <div class="d-flex align-items-center justify-content-center text-body-secondary">Нет фото</div>
                 </div>
             {% endif %}
+            <form method="post"
+                  action="{% url "parts:photo_url" part.pk %}"
+                  class="input-group mt-2">
+                {% csrf_token %}
+                <input class="form-control"
+                       type="url"
+                       name="url"
+                       placeholder="Ссылка на картинку"
+                       aria-label="Ссылка на картинку"
+                       required>
+                <button type="submit" class="btn btn-outline-secondary">Загрузить</button>
+            </form>
             <div class="card shadow-sm mt-3">
                 <div class="card-body">
                     <div class="text-body-secondary small mb-1">Количество</div>

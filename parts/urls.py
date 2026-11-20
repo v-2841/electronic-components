@@ -14,6 +14,8 @@ urlpatterns = [
     path('parts/<int:pk>/delete/', views.PartDeleteView.as_view(),
          name='delete'),
     path('parts/<int:pk>/adjust/', views.adjust_quantity, name='adjust'),
+    path('parts/<int:pk>/photo-url/', views.photo_from_url,
+         name='photo_url'),
     path('categories/', views.CategoryListView.as_view(), name='categories'),
     path('categories/new/', views.CategoryCreateView.as_view(),
          name='category_create'),
