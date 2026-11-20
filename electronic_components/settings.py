@@ -123,7 +123,9 @@ REST_FRAMEWORK = {
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Радиодетали API',
-    'DESCRIPTION': 'Учёт радиодеталей: детали, категории, места хранения.',
+    'DESCRIPTION': 'Учёт радиодеталей: детали, категории, места хранения. '
+                   'ИИ-агентам: сначала прочитайте GET /api/v1/guide/ — доступ, '
+                   'типовые задачи и правила.',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'SERVE_PERMISSIONS': ['rest_framework.permissions.IsAuthenticated'],

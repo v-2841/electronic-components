@@ -62,26 +62,33 @@ poetry run djlint templates --check   # --reformat — исправить фор
 
 ## API
 
-Всё под `/api/`, только для вошедших: сессия браузера или токен.
-Документация и «попробовать» — Swagger на `/api/docs/`, схема OpenAPI —
-`/api/schema/`.
+Всё под `/api/v1/`, только для вошедших: сессия браузера или токен.
+Версия — в адресе: несовместимые изменения (переименование или удаление
+полей и методов, смена смысла) — только в новой версии `/api/v2/`, `v1`
+при этом остаётся.
+Документация и «попробовать» — Swagger на `/api/v1/docs/`, схема OpenAPI —
+`/api/v1/schema/` (у каждого поля и метода есть описание).
+
+**ИИ-агентам** — `GET /api/v1/guide/`: инструкция в markdown (доступ, данные,
+типовые задачи, правила, ошибки). Текст лежит в `api/guide.md`, адрес API
+подставляется из запроса. Агенту достаточно дать адрес сайта и токен.
 
 ```bash
 # получить токен (он же виден в админке, раздел «Токены»)
-curl -X POST https://example.com/api/token/ \
+curl -X POST https://example.com/api/v1/token/ \
      -d username=<логин> -d password=<пароль>
 
 curl -H 'Authorization: Token <токен>' \
-     'https://example.com/api/parts/?q=10 кОм&in_stock=true'
+     'https://example.com/api/v1/parts/?q=10 кОм&in_stock=true'
 ```
 
 | Метод и путь | Что делает |
 |---|---|
-| `GET/POST /api/parts/` | список (по 50, `page`, `page_size` до 1000) и создание |
-| `GET/PUT/PATCH/DELETE /api/parts/{id}/` | одна деталь; фото — multipart-полем `photo`, `null` — убрать |
-| `POST /api/parts/{id}/adjust/` | `{"delta": -2}` — изменить количество |
-| `/api/categories/`, `/api/categories/{id}/` | категории; `parent` — ID верхней категории или `null` |
-| `/api/locations/`, `/api/locations/{id}/` | места хранения |
+| `GET/POST /api/v1/parts/` | список (по 50, `page`, `page_size` до 1000) и создание |
+| `GET/PUT/PATCH/DELETE /api/v1/parts/{id}/` | одна деталь; фото — multipart-полем `photo`, `null` — убрать |
+| `POST /api/v1/parts/{id}/adjust/` | `{"delta": -2}` — изменить количество |
+| `/api/v1/categories/`, `/api/v1/categories/{id}/` | категории; `parent` — ID верхней категории или `null` |
+| `/api/v1/locations/`, `/api/v1/locations/{id}/` | места хранения |
 
 Фильтры списка деталей: `q` (поиск), `category` (ID; верхняя включает
 подкатегории), `location` (ID или `none` — место не указано), `mounting`
